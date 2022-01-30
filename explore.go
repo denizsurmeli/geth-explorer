@@ -57,17 +57,22 @@ func main() {
 		ListenHeaders(conn)
 	case "listen_blocks":
 		ListenBlocks(conn)
-	case "lens_transaction":
+	case "lense_transaction":
 		if *txHashPtr == "0x0" {
 			color.Red("[PARAMETERERR] Tx Hash invalid or not given for this operation.Pass it by --txhash=<transaction hash>.")
-			panic("")
 		}
-		LensTransaction(conn, *txHashPtr)
-
+		LenseTransaction(conn, *txHashPtr)
+	case "lense_mempool":
+		LenseMempool(networkConfig)
 	}
 }
-
-func LensTransaction(conn *ethclient.Client, transaction string) {
+func LenseMempool(networkConfig []string) {
+	//@TODO
+}
+func LenseBlock(conn *ethclient.Client, block string) {
+	//@TODO
+}
+func LenseTransaction(conn *ethclient.Client, transaction string) {
 	txHash := common.HexToHash(transaction)
 	tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
 	networkId, err := conn.NetworkID(context.Background())
@@ -88,10 +93,8 @@ func LensTransaction(conn *ethclient.Client, transaction string) {
 	color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
 	color.Green("[FROM]:%s --> [TO]:%s", txAsMessage.From().String(), txAsMessage.To().String())
 	color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
-	color.Yellow("[TXDATA(bytes32)] Transaction data:")
-	fmt.Println("\t[TXDATA] =", txAsMessage.Data())
-	color.Green("\tFormat to Hex ->")
-	fmt.Println("\t[HEXTXDATA] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
+	color.Yellow("[TXDATA] Transaction data:")
+	fmt.Println("\t[HEX] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
 }
 func ListenBlocks(conn *ethclient.Client) {
 	headers := make(chan *types.Header)
@@ -155,7 +158,7 @@ func ListenHeaders(conn *ethclient.Client) {
 	headers := make(chan *types.Header)
 	subscription, err := conn.SubscribeNewHead(context.Background(), headers)
 	if err != nil {
-		fmt.Errorf(err.Error())
+		_ = fmt.Errorf(err.Error())
 		color.Red("[OPERATION] Listening to headers behaved unexpectedly.Halting the execution.")
 	}
 
