@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/status-im/keycard-go/hexutils"
 	"log"
 	"strings"
 	"time"
@@ -16,7 +18,8 @@ import (
 
 func main() {
 	networkNamePtr := flag.String("network", "mainnet", "a string")
-	operationPtr := flag.String("subscribe", "headers", "a string")
+	operationPtr := flag.String("operation", "listen_headers", "a string")
+	txHashPtr := flag.String("txhash", "0x0", "a string")
 
 	// only use websockets
 	flag.Parse()
@@ -50,12 +53,45 @@ func main() {
 	}
 	color.Green("[NETWORK] Node connection established.")
 	switch *operationPtr {
-	case "headers":
+	case "listen_headers":
 		ListenHeaders(conn)
-	case "blocks":
+	case "listen_blocks":
 		ListenBlocks(conn)
+	case "lens_transaction":
+		if *txHashPtr == "0x0" {
+			color.Red("[PARAMETERERR] Tx Hash invalid or not given for this operation.Pass it by --txhash=<transaction hash>.")
+			panic("")
+		}
+		LensTransaction(conn, *txHashPtr)
+
+	}
+}
+
+func LensTransaction(conn *ethclient.Client, transaction string) {
+	txHash := common.HexToHash(transaction)
+	tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
+	networkId, err := conn.NetworkID(context.Background())
+	if err != nil {
+		color.Red("[OPERATION] Network Id could not be fetched.Halting the execution")
+		panic("")
 	}
 
+	txAsMessage, err := tx.AsMessage(types.NewLondonSigner(networkId), nil)
+	if err != nil {
+		color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
+		panic("")
+	}
+	if err != nil {
+		color.Red("[OPERATION] Error occured while fetching the transaction. Maybe check the transaction hash ?")
+		panic("")
+	}
+	color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
+	color.Green("[FROM]:%s --> [TO]:%s", txAsMessage.From().String(), txAsMessage.To().String())
+	color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
+	color.Yellow("[TXDATA(bytes32)] Transaction data:")
+	fmt.Println("\t[TXDATA] =", txAsMessage.Data())
+	color.Green("\tFormat to Hex ->")
+	fmt.Println("\t[HEXTXDATA] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
 }
 func ListenBlocks(conn *ethclient.Client) {
 	headers := make(chan *types.Header)
