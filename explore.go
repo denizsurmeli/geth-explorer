@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/gorilla/websocket"
 	"github.com/status-im/keycard-go/hexutils"
 	"log"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -16,9 +20,20 @@ import (
 	"github.com/spf13/viper"
 )
 
+type PendingTxMessage struct {
+	Version string
+	Method  string
+	Params  ParamsResult
+}
+
+type ParamsResult struct {
+	Subscription string
+	Result       string
+}
+
 func main() {
 	networkNamePtr := flag.String("network", "mainnet", "a string")
-	operationPtr := flag.String("operation", "listen_headers", "a string")
+	operationPtr := flag.String("operation", "lense_txpool", "a string")
 	txHashPtr := flag.String("txhash", "0x0", "a string")
 
 	// only use websockets
@@ -62,19 +77,89 @@ func main() {
 			color.Red("[PARAMETERERR] Tx Hash invalid or not given for this operation.Pass it by --txhash=<transaction hash>.")
 		}
 		LenseTransaction(conn, *txHashPtr)
-	case "lense_mempool":
-		LenseMempool(networkConfig)
+	case "lense_block":
+		//LenseBlock(conn, number)
+	case "lense_txpool":
+		LenseTxpool(conn, networkConfig)
 	}
 }
-func LenseMempool(networkConfig []string) {
-	//@TODO
+
+func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
+	//@TODO:Dirty research. Dig in to the details
+	messageOut := make(chan string)
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+
+	conn, _, err := websocket.DefaultDialer.Dial(strings.Join(networkConfig, ""), nil)
+	if err != nil {
+		color.Red("[NETWORK] Could not connect to the node directly. Halting the execution.")
+		os.Exit(42)
+	}
+	defer conn.Close()
+	done := make(chan struct{})
+	var pendingTx PendingTxMessage
+	counter := 0 //purpose of this counter is that the first message coming from the channel is unexpected.
+	//plus we can use it as the counter for the number of txs in the txpool.
+	go func() {
+		defer close(done)
+		for {
+			// Problem: Message is unexpected, solve it.
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				color.Red("[NETWORK] Could not read the message, or session terminated. If non intended, maybe provider error ? ")
+				return
+			}
+			if counter != 0 {
+				json.Unmarshal(data, &pendingTx)
+				//@TODO:Fix this
+				//LenseTransaction(ethconn, pendingTx.Params.Result)
+
+			}
+			counter++
+
+		}
+	}()
+	//new pending tx's
+	txPoolRequest := `{"jsonrpc":"2.0", "id": 1, "method": "eth_subscribe", "params": ["newPendingTransactions"]}`
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(txPoolRequest)); err != nil {
+		color.Red("[NETWORK-OPERATION] Could not send  the message. Halting the execution.")
+		os.Exit(21)
+	}
+	for {
+		select {
+		case <-done:
+			return
+		case _ = <-messageOut:
+			err := conn.WriteMessage(websocket.TextMessage, []byte(txPoolRequest))
+			if err != nil {
+				color.Red("[NETWORK] Could not write the message.")
+				return
+			}
+		case <-interrupt:
+			color.Red("[NETWORK] Interrupt on connection.")
+			err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			if err != nil {
+				color.Red("[NETWORK] Could not close the channel")
+				return
+			}
+			select {
+			case <-done:
+			}
+			return
+		}
+	}
 }
-func LenseBlock(conn *ethclient.Client, block string) {
+func LenseBlock(conn *ethclient.Client, block uint64) {
 	//@TODO
 }
 func LenseTransaction(conn *ethclient.Client, transaction string) {
 	txHash := common.HexToHash(transaction)
 	tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
+	if err != nil {
+		color.Red("[OPERATION] Error occured while fetching the transaction. Maybe check the transaction hash ?")
+		panic("")
+	}
+
 	networkId, err := conn.NetworkID(context.Background())
 	if err != nil {
 		color.Red("[OPERATION] Network Id could not be fetched.Halting the execution")
@@ -86,10 +171,7 @@ func LenseTransaction(conn *ethclient.Client, transaction string) {
 		color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
 		panic("")
 	}
-	if err != nil {
-		color.Red("[OPERATION] Error occured while fetching the transaction. Maybe check the transaction hash ?")
-		panic("")
-	}
+
 	color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
 	color.Green("[FROM]:%s --> [TO]:%s", txAsMessage.From().String(), txAsMessage.To().String())
 	color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
