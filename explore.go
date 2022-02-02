@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/status-im/keycard-go/hexutils"
 	"log"
+	"math/big"
 	"os"
 	"os/signal"
 	"strings"
@@ -35,7 +36,7 @@ func main() {
 	networkNamePtr := flag.String("network", "mainnet", "a string")
 	operationPtr := flag.String("operation", "lense_txpool", "a string")
 	txHashPtr := flag.String("txhash", "0x0", "a string")
-
+	blockNoPtr := flag.Uint64("blocknumber", 0, "an int")
 	// only use websockets
 	flag.Parse()
 
@@ -74,11 +75,14 @@ func main() {
 		ListenBlocks(conn)
 	case "lense_transaction":
 		if *txHashPtr == "0x0" {
-			color.Red("[PARAMETERERR] Tx Hash invalid or not given for this operation.Pass it by --txhash=<transaction hash>.")
+			color.Red("[PARAMETER_ERROR] Tx Hash invalid or not given for this operation.Pass it by --txhash=<transaction hash>.")
 		}
 		LenseTransaction(conn, *txHashPtr)
 	case "lense_block":
-		//LenseBlock(conn, number)
+		if *blockNoPtr < 0 {
+			panic("Argument error. There is no block with block number less than 0.")
+		}
+		LenseBlock(conn, *blockNoPtr)
 	case "lense_txpool":
 		LenseTxpool(conn, networkConfig)
 	}
@@ -86,6 +90,12 @@ func main() {
 
 func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 	//@TODO:Dirty research. Dig in to the details
+	defer func() {
+		if err := recover(); err != nil {
+			color.Red("[OPERATION] Critical error occurred. Recovering, see the logs.")
+			log.Println("Panic:", err)
+		}
+	}()
 	messageOut := make(chan string)
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
@@ -98,7 +108,7 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 	defer conn.Close()
 	done := make(chan struct{})
 	var pendingTx PendingTxMessage
-	counter := 0 //purpose of this counter is that the first message coming from the channel is unexpected.
+	counter := 1 //purpose of this counter is that the first message coming from the channel is unexpected.
 	//plus we can use it as the counter for the number of txs in the txpool.
 	go func() {
 		defer close(done)
@@ -112,7 +122,7 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 			if counter != 0 {
 				json.Unmarshal(data, &pendingTx)
 				//@TODO:Fix this
-				//LenseTransaction(ethconn, pendingTx.Params.Result)
+				LenseTxOnlyValue(ethconn, pendingTx.Params.Result)
 
 			}
 			counter++
@@ -149,27 +159,74 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 		}
 	}
 }
-func LenseBlock(conn *ethclient.Client, block uint64) {
-	//@TODO
+func LenseBlock(conn *ethclient.Client, blockNumber uint64) {
+	if blockNumber < 0 {
+		color.Red("[USER] There is no such block.")
+		panic("blockNumber is negative.")
+	}
+	block, err := conn.BlockByNumber(context.Background(), big.NewInt(int64(blockNumber)))
+
+	if err != nil {
+		color.Red("[OPERATION] Block could not be fetched. Maybe check block number ? ")
+	}
+	color.Green("[BLOCK] Block %d found.\n", block.Header().Number.Uint64())
+	color.Cyan("[SIZE] Block size:%s\n", block.Header().Size().String())
+	color.Magenta("[BLOCKINFO] Block hash:%s\n", block.Header().Hash().String())
+	color.Blue("[BLOCKINFO] Tx Count:%d\n", len(block.Transactions()))
+	color.Cyan("[SIMPLETXLIST] Transactions:\n")
+	for index, transaction := range block.Transactions() {
+		chainId, err := conn.NetworkID(context.Background())
+		if err != nil {
+			color.Red("[OPERATION] Chain ID could not be fetched while formatting the block info.Halting the exection.")
+			fmt.Println(err.Error())
+		}
+		message, err := transaction.AsMessage(types.NewLondonSigner(chainId), nil)
+		if err != nil {
+			color.Red("[OPERATION] Message could not be fetched while formatting the block info.Halting the exection.")
+			fmt.Println(err.Error())
+		}
+		fromToString := message.From().String()
+		var toToString string
+		if message.To() == nil {
+			toToString = "?(Probably Signer Error.)"
+		} else {
+			toToString = message.To().String()
+		}
+		valueToEtherThenString := message.Value().String()
+		gasPaid := (message.Gas() * message.GasPrice().Uint64())
+		totalValue := transaction.Cost().Uint64()
+		fmt.Printf("%d) %s ----> %s \n\t| Value:%s wei \n\t| Gas Paid:%d wei \n\t| Total Value:%d wei\n",
+			index+1,
+			fromToString,
+			toToString,
+			valueToEtherThenString,
+			gasPaid,
+			totalValue)
+	}
+
 }
 func LenseTransaction(conn *ethclient.Client, transaction string) {
 	txHash := common.HexToHash(transaction)
 	tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
+	//@TODO:Can't figure out why even though websocket returns the hash.
+	//Simple dirty-fix at the moment.
+	if tx == nil {
+
+		color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
+		return
+	}
 	if err != nil {
-		color.Red("[OPERATION] Error occured while fetching the transaction. Maybe check the transaction hash ?")
-		panic("")
+		color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
 	}
 
 	networkId, err := conn.NetworkID(context.Background())
 	if err != nil {
 		color.Red("[OPERATION] Network Id could not be fetched.Halting the execution")
-		panic("")
 	}
 
 	txAsMessage, err := tx.AsMessage(types.NewLondonSigner(networkId), nil)
 	if err != nil {
 		color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
-		panic("")
 	}
 
 	color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
@@ -177,6 +234,7 @@ func LenseTransaction(conn *ethclient.Client, transaction string) {
 	color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
 	color.Yellow("[TXDATA] Transaction data:")
 	fmt.Println("\t[HEX] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
+
 }
 func ListenBlocks(conn *ethclient.Client) {
 	headers := make(chan *types.Header)
@@ -267,4 +325,42 @@ func ListenHeaders(conn *ethclient.Client) {
 			fmt.Println("\t(*)Timestamp:", blockHeader.Time)
 		}
 	}
+}
+
+func LenseTxOnlyValue(conn *ethclient.Client, transaction string) {
+	//@TODO: Execute data while waiting, see the expected outcome ?
+	//Exclude pure transactions ?
+	defer func() {
+		if err := recover(); err != nil {
+			color.Red("[OPERATION] Critical error occurred. Recovering, see the logs.")
+			log.Println("Panic:", err)
+		}
+	}()
+	txHash := common.HexToHash(transaction)
+	tx, _, err := conn.TransactionByHash(context.Background(), txHash)
+	//@TODO:Can't figure out why even though websocket returns the hash.
+	//Simple dirty-fix at the moment.
+	if tx == nil {
+		// put them in a queue, try to execute until every tx is processed.
+		//color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
+		return
+	}
+	if err != nil {
+		color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
+	}
+
+	networkId, err := conn.NetworkID(context.Background())
+	if err != nil {
+		color.Red("[OPERATION] Network Id could not be fetched.Halting the execution")
+	}
+
+	txAsMessage, err := tx.AsMessage(types.NewLondonSigner(networkId), nil)
+	if err != nil {
+		color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
+	}
+	color.Green("[TX] TxHash:%s", tx.Hash().String())
+	color.Yellow("\t[TX] From:%s --> To:%s | Value: %d | Gas: %d ", txAsMessage.From().String(), txAsMessage.To().String(), txAsMessage.Value().Uint64(), txAsMessage.Gas())
+
+	color.Magenta("\t[TX] Data:%s", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
+
 }
