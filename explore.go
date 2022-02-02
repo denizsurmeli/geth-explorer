@@ -108,7 +108,7 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 	defer conn.Close()
 	done := make(chan struct{})
 	var pendingTx PendingTxMessage
-	counter := 0 //purpose of this counter is that the first message coming from the channel is unexpected.
+	counter := 1 //purpose of this counter is that the first message coming from the channel is unexpected.
 	//plus we can use it as the counter for the number of txs in the txpool.
 	go func() {
 		defer close(done)
@@ -207,38 +207,33 @@ func LenseBlock(conn *ethclient.Client, blockNumber uint64) {
 }
 func LenseTransaction(conn *ethclient.Client, transaction string) {
 	txHash := common.HexToHash(transaction)
-	if len(txHash) == 0 {
-		color.Red("[OPERATION] Error occurred while formatting txHash.Transaction details are not available.")
+	tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
+	//@TODO:Can't figure out why even though websocket returns the hash.
+	//Simple dirty-fix at the moment.
+	if tx == nil {
+
+		color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
 		return
-	} else {
-		tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
-		//@TODO:Can't figure out why even though websocket returns the hash.
-		//Simple dirty-fix at the moment.
-		if tx == nil {
-
-			color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
-			return
-		}
-		if err != nil {
-			color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
-		}
-
-		networkId, err := conn.NetworkID(context.Background())
-		if err != nil {
-			color.Red("[OPERATION] Network Id could not be fetched.Halting the execution")
-		}
-
-		txAsMessage, err := tx.AsMessage(types.NewLondonSigner(networkId), nil)
-		if err != nil {
-			color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
-		}
-
-		color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
-		color.Green("[FROM]:%s --> [TO]:%s", txAsMessage.From().String(), txAsMessage.To().String())
-		color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
-		color.Yellow("[TXDATA] Transaction data:")
-		fmt.Println("\t[HEX] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
 	}
+	if err != nil {
+		color.Red("[OPERATION] Error occurred while fetching the transaction. Maybe check the transaction hash ?")
+	}
+
+	networkId, err := conn.NetworkID(context.Background())
+	if err != nil {
+		color.Red("[OPERATION] Network Id could not be fetched.Halting the execution")
+	}
+
+	txAsMessage, err := tx.AsMessage(types.NewLondonSigner(networkId), nil)
+	if err != nil {
+		color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
+	}
+
+	color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
+	color.Green("[FROM]:%s --> [TO]:%s", txAsMessage.From().String(), txAsMessage.To().String())
+	color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
+	color.Yellow("[TXDATA] Transaction data:")
+	fmt.Println("\t[HEX] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
 
 }
 func ListenBlocks(conn *ethclient.Client) {
