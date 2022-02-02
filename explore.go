@@ -108,7 +108,7 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 	defer conn.Close()
 	done := make(chan struct{})
 	var pendingTx PendingTxMessage
-	counter := 1 //purpose of this counter is that the first message coming from the channel is unexpected.
+	counter := 0 //purpose of this counter is that the first message coming from the channel is unexpected.
 	//plus we can use it as the counter for the number of txs in the txpool.
 	go func() {
 		defer close(done)
