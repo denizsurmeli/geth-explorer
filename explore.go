@@ -34,7 +34,7 @@ type ParamsResult struct {
 
 func main() {
 	networkNamePtr := flag.String("network", "mainnet", "a string")
-	operationPtr := flag.String("operation", "lense_txpool", "a string")
+	operationPtr := flag.String("operation", "lens_txpool", "a string")
 	txHashPtr := flag.String("txhash", "0x0", "a string")
 	blockNoPtr := flag.Uint64("blocknumber", 0, "an int")
 	// only use websockets
@@ -73,22 +73,22 @@ func main() {
 		ListenHeaders(conn)
 	case "listen_blocks":
 		ListenBlocks(conn)
-	case "lense_transaction":
+	case "lens_transaction":
 		if *txHashPtr == "0x0" {
 			color.Red("[PARAMETER_ERROR] Tx Hash invalid or not given for this operation.Pass it by --txhash=<transaction hash>.")
 		}
-		LenseTransaction(conn, *txHashPtr)
-	case "lense_block":
+		LensTransaction(conn, *txHashPtr)
+	case "lens_block":
 		if *blockNoPtr < 0 {
 			panic("Argument error. There is no block with block number less than 0.")
 		}
-		LenseBlock(conn, *blockNoPtr)
-	case "lense_txpool":
-		LenseTxpool(conn, networkConfig)
+		LensBlock(conn, *blockNoPtr)
+	case "lens_txpool":
+		LensTxpool(conn, networkConfig)
 	}
 }
 
-func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
+func LensTxpool(ethconn *ethclient.Client, networkConfig []string) {
 	//@TODO:Dirty research. Dig in to the details
 	defer func() {
 		if err := recover(); err != nil {
@@ -122,7 +122,7 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 			if counter != 0 {
 				json.Unmarshal(data, &pendingTx)
 				//@TODO:Fix this
-				LenseTxOnlyValue(ethconn, pendingTx.Params.Result)
+				LensTxOnlyValue(ethconn, pendingTx.Params.Result)
 
 			}
 			counter++
@@ -159,7 +159,7 @@ func LenseTxpool(ethconn *ethclient.Client, networkConfig []string) {
 		}
 	}
 }
-func LenseBlock(conn *ethclient.Client, blockNumber uint64) {
+func LensBlock(conn *ethclient.Client, blockNumber uint64) {
 	if blockNumber < 0 {
 		color.Red("[USER] There is no such block.")
 		panic("blockNumber is negative.")
@@ -205,7 +205,7 @@ func LenseBlock(conn *ethclient.Client, blockNumber uint64) {
 	}
 
 }
-func LenseTransaction(conn *ethclient.Client, transaction string) {
+func LensTransaction(conn *ethclient.Client, transaction string) {
 	txHash := common.HexToHash(transaction)
 	tx, isPending, err := conn.TransactionByHash(context.Background(), txHash)
 	//@TODO:Can't figure out why even though websocket returns the hash.
@@ -327,7 +327,7 @@ func ListenHeaders(conn *ethclient.Client) {
 	}
 }
 
-func LenseTxOnlyValue(conn *ethclient.Client, transaction string) {
+func LensTxOnlyValue(conn *ethclient.Client, transaction string) {
 	//@TODO: Execute data while waiting, see the expected outcome ?
 	//Exclude pure transactions ?
 	defer func() {
