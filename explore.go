@@ -159,6 +159,8 @@ func LensTxpool(ethconn *ethclient.Client, networkConfig []string) {
 		}
 	}
 }
+
+// Refactor
 func LensBlock(conn *ethclient.Client, blockNumber uint64) {
 	if blockNumber < 0 {
 		color.Red("[USER] There is no such block.")
@@ -228,11 +230,11 @@ func LensTransaction(conn *ethclient.Client, transaction string) {
 	if err != nil {
 		color.Red("[OPERATION] Formatting as message failed. Halting the execution.")
 	}
-
+	
 	color.Cyan("[TRANSACTION] Tx Hash: %s Is Pending ?:%t", tx.Hash().String(), isPending)
 	color.Green("[FROM]:%s --> [TO]:%s", txAsMessage.From().String(), txAsMessage.To().String())
 	color.Blue("Gas Limit:%d | Value:%d ", txAsMessage.Gas(), txAsMessage.Value().Uint64())
-	color.Yellow("[TXDATA] Transaction data:")
+	color.Yellow("[DATA] Transaction data:")
 	fmt.Println("\t[HEX] =", "0x"+hexutils.BytesToHex(txAsMessage.Data()))
 
 }

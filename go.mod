@@ -1,4 +1,4 @@
-module playground
+module getherscan-cli
 
 go 1.17
 

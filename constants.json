@@ -1,0 +1,12 @@
+{
+  "infura": {
+    "http": {
+      "begin": "https://",
+      "middle": ".infura.io/v3/"
+    },
+    "wss": {
+      "begin": "wss://",
+      "middle": ".infura.io/v3/"
+    }
+  }
+}
